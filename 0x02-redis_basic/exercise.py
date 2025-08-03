@@ -159,3 +159,37 @@ class Cache:
             The data as an integer, or None if key doesn't exist.
         """
         return self.get(key, fn=int)
+
+
+def replay(method) -> None:
+    """
+    Display the history of calls of a particular function.
+
+    Args:
+        method: The bound method to display call history for.
+    """
+    # Get the Redis instance from the method's bound instance
+    redis_instance = method.__self__._redis
+    method_name = method.__qualname__
+
+    # Get the call count
+    count = redis_instance.get(method_name)
+    if count is None:
+        count = 0
+    else:
+        count = int(count)
+
+    print(f"{method_name} was called {count} times:")
+
+    # Get input and output history
+    input_key = f"{method_name}:inputs"
+    output_key = f"{method_name}:outputs"
+
+    inputs = redis_instance.lrange(input_key, 0, -1)
+    outputs = redis_instance.lrange(output_key, 0, -1)
+
+    # Display each call
+    for inp, out in zip(inputs, outputs):
+        input_str = inp.decode('utf-8')
+        output_str = out.decode('utf-8')
+        print(f"{method_name}(*{input_str}) -> {output_str}")

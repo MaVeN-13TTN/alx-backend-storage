@@ -1,6 +1,6 @@
 # 0x02. Redis basic
 
-This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, tracks method call counts, and maintains call history using decorators.
+This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, tracks method call counts, maintains call history using decorators, and provides replay functionality to display function call history.
 
 ## Learning Objectives
 
@@ -15,6 +15,8 @@ This project demonstrates basic Redis operations using Python. It includes imple
 - Practice method call tracking and monitoring
 - Learn Redis list commands (RPUSH, LPUSH, LRANGE)
 - Implement call history tracking with input/output storage
+- Create replay functionality to display function call history
+- Practice using zip() function for data pairing
 
 ## Requirements
 
@@ -43,14 +45,17 @@ service redis-server start
 
 ## Files
 
-- `exercise.py`: Contains the Cache class implementation with store/get methods and decorators
+- `exercise.py`: Contains the Cache class implementation with store/get methods, decorators, and replay function
 - `main.py`: Test file for the Cache class (Task 0)
 - `main_task2.py`: Test file for count_calls decorator (Task 2)
 - `main_task3.py`: Test file for call_history decorator (Task 3)
+- `main_task4.py`: Test file for replay function (Task 4)
 - `test_task1.py`: Test file for get methods (Task 1)
 - `test_get_methods.py`: Additional tests for get_str and get_int methods
 - `test_count_calls.py`: Comprehensive tests for the count_calls decorator
 - `test_call_history.py`: Comprehensive tests for the call_history decorator
+- `test_replay.py`: Basic tests for the replay function
+- `test_replay_comprehensive.py`: Comprehensive tests for the replay function
 - `test_multiple_instances.py`: Tests decorator behavior with multiple Cache instances
 - `comprehensive_test.py`: Complete test suite for all implemented features
 
@@ -116,24 +121,38 @@ print(cache.get(cache.store.__qualname__))  # Returns: b'3'
 print(f"Counter key: {cache.store.__qualname__}")  # Returns: Cache.store
 ```
 
-### Storing Call History (Task 3)
+**Task 3 (Call History):**
+```bash
+$ python3 main_task3.py
+[b'key1', b'key2', b'key3']
+```
+
+**Task 4 (Replay Function):**
+```bash
+$ python3 main_task4.py
+Cache.store was called 4 times:
+Cache.store(*('first',)) -> 13bf32a9-a249-4664-95fc-b1062db2038f
+Cache.store(*('second',)) -> dcddd00c-4219-4dd7-8877-66afbe8e7df8
+Cache.store(*(42,)) -> 5e752f2b-ecd8-4925-a3ce-e2efdee08d20
+Cache.store(*([1, 2, 3],)) -> d686d562-229a-4a6d-8b8e-7dcbe7f54c18
+```
+
+### Displaying Call History (Task 4)
 ```python
 #!/usr/bin/env python3
-Cache = __import__('exercise').Cache
+from exercise import Cache, replay
 
 cache = Cache()
+cache.store("foo")
+cache.store("bar")
+cache.store(42)
 
-# Store some data
-s1 = cache.store("first")
-s2 = cache.store("second")
-s3 = cache.store("third")
-
-# Retrieve input and output history
-inputs = cache._redis.lrange("{}:inputs".format(cache.store.__qualname__), 0, -1)
-outputs = cache._redis.lrange("{}:outputs".format(cache.store.__qualname__), 0, -1)
-
-print("inputs:", inputs)   # [b"('first',)", b"('second',)", b"('third',)"]
-print("outputs:", outputs) # [b'key1', b'key2', b'key3']
+replay(cache.store)
+# Output:
+# Cache.store was called 3 times:
+# Cache.store(*('foo',)) -> 13bf32a9-a249-4664-95fc-b1062db2038f
+# Cache.store(*('bar',)) -> dcddd00c-4219-4dd7-8877-66afbe8e7df8
+# Cache.store(*(42,)) -> 5e752f2b-ecd8-4925-a3ce-e2efdee08d20
 ```
 
 ## Tasks
@@ -282,6 +301,46 @@ outputs = cache._redis.lrange("Cache.store:outputs", 0, -1)
 # outputs: [b'key1', b'key2', b'key3']
 ```
 
+### 4. Retrieving lists
+
+Implement a replay function to display the history of calls of a particular function:
+- Create `replay` function that takes a bound method as parameter
+- Uses keys generated from previous tasks to display call history
+- Shows total number of calls and each call with its input/output
+- Uses Redis LRANGE command and zip() to iterate over inputs and outputs
+
+**Key Features:**
+- **History Display**: Shows formatted call history with inputs and outputs
+- **Redis LRANGE**: Uses LRANGE command to retrieve list data
+- **Data Pairing**: Uses zip() function to pair inputs with outputs
+- **Bound Method Access**: Accesses Redis instance through method's `__self__` attribute
+- **Formatted Output**: Displays calls in human-readable format
+
+**Implementation Details:**
+```python
+def replay(method) -> None:
+    redis_instance = method.__self__._redis
+    method_name = method.__qualname__
+    
+    # Get call count and history
+    count = redis_instance.get(method_name)
+    inputs = redis_instance.lrange(f"{method_name}:inputs", 0, -1)
+    outputs = redis_instance.lrange(f"{method_name}:outputs", 0, -1)
+    
+    # Display formatted history
+    print(f"{method_name} was called {count} times:")
+    for inp, out in zip(inputs, outputs):
+        print(f"{method_name}(*{inp.decode('utf-8')}) -> {out.decode('utf-8')}")
+```
+
+**Example Output:**
+```
+Cache.store was called 3 times:
+Cache.store(*('foo',)) -> 13bf32a9-a249-4664-95fc-b1062db2038f
+Cache.store(*('bar',)) -> dcddd00c-4219-4dd7-8877-66afbe8e7df8
+Cache.store(*(42,)) -> 5e752f2b-ecd8-4925-a3ce-e2efdee08d20
+```
+
 ## Cache Class Methods
 
 ### Decorators
@@ -337,11 +396,13 @@ Run individual tests:
 python3 main.py                    # Test basic store functionality (Task 0)
 python3 main_task2.py              # Test count_calls decorator (Task 2)
 python3 main_task3.py              # Test call_history decorator (Task 3)
+python3 main_task4.py              # Test replay function (Task 4)
 python3 test_task1.py              # Test get method with required test cases (Task 1)
 python3 test_get_methods.py        # Test get_str and get_int methods
 python3 test_count_calls.py        # Comprehensive decorator tests
 python3 test_call_history.py       # Comprehensive call_history tests
 python3 test_multiple_instances.py # Test decorator with multiple instances
+python3 test_replay.py             # Comprehensive replay function tests
 ```
 
 ### Expected Output Examples
