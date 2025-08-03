@@ -1,6 +1,6 @@
 # 0x02. Redis basic
 
-This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, tracks method call counts, maintains call history using decorators, and provides replay functionality to display function call history.
+This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, tracks method call counts, maintains call history using decorators, provides replay functionality to display function call history, and implements an expiring web cache with request tracking.
 
 ## Learning Objectives
 
@@ -17,6 +17,10 @@ This project demonstrates basic Redis operations using Python. It includes imple
 - Implement call history tracking with input/output storage
 - Create replay functionality to display function call history
 - Practice using zip() function for data pairing
+- Learn to implement web caching with expiration using Redis SETEX
+- Understand HTTP request optimization through caching
+- Practice decorator patterns for clean separation of concerns
+- Learn to track URL access patterns and statistics
 
 ## Requirements
 
@@ -46,10 +50,12 @@ service redis-server start
 ## Files
 
 - `exercise.py`: Contains the Cache class implementation with store/get methods, decorators, and replay function
+- `web.py`: Web caching implementation with expiration and request tracking (Task 5)
 - `main.py`: Test file for the Cache class (Task 0)
 - `main_task2.py`: Test file for count_calls decorator (Task 2)
 - `main_task3.py`: Test file for call_history decorator (Task 3)
 - `main_task4.py`: Test file for replay function (Task 4)
+- `main_task5.py`: Test file for web caching functionality (Task 5)
 - `test_task1.py`: Test file for get methods (Task 1)
 - `test_get_methods.py`: Additional tests for get_str and get_int methods
 - `test_count_calls.py`: Comprehensive tests for the count_calls decorator
@@ -57,6 +63,7 @@ service redis-server start
 - `test_replay.py`: Basic tests for the replay function
 - `test_replay_comprehensive.py`: Comprehensive tests for the replay function
 - `test_multiple_instances.py`: Tests decorator behavior with multiple Cache instances
+- `test_web.py`: Simple tests for web caching functionality
 - `comprehensive_test.py`: Complete test suite for all implemented features
 
 ## Usage
@@ -122,12 +129,14 @@ print(f"Counter key: {cache.store.__qualname__}")  # Returns: Cache.store
 ```
 
 **Task 3 (Call History):**
+
 ```bash
 $ python3 main_task3.py
 [b'key1', b'key2', b'key3']
 ```
 
 **Task 4 (Replay Function):**
+
 ```bash
 $ python3 main_task4.py
 Cache.store was called 4 times:
@@ -138,6 +147,7 @@ Cache.store(*([1, 2, 3],)) -> d686d562-229a-4a6d-8b8e-7dcbe7f54c18
 ```
 
 ### Displaying Call History (Task 4)
+
 ```python
 #!/usr/bin/env python3
 from exercise import Cache, replay
@@ -250,6 +260,7 @@ count = cache.get(cache.store.__qualname__)  # Returns b'3'
 ### 3. Storing lists
 
 Implement a decorator to store the history of inputs and outputs for a function:
+
 - Create `call_history` decorator above the Cache class
 - Decorator stores function inputs and outputs in separate Redis lists
 - Uses `method.__qualname__` with `:inputs` and `:outputs` suffixes as keys
@@ -257,6 +268,7 @@ Implement a decorator to store the history of inputs and outputs for a function:
 - Apply both `@call_history` and `@count_calls` decorators to store method
 
 **Key Features:**
+
 - **Input/Output Tracking**: Stores complete call history with arguments and results
 - **Redis Lists**: Uses RPUSH to maintain chronological order
 - **Qualified Name Keys**: Uses `Cache.store:inputs` and `Cache.store:outputs` as keys
@@ -264,20 +276,21 @@ Implement a decorator to store the history of inputs and outputs for a function:
 - **Decorator Stacking**: Works together with `count_calls` decorator
 
 **Implementation Details:**
+
 ```python
 def call_history(method: Callable) -> Callable:
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         input_key = f"{method.__qualname__}:inputs"
         output_key = f"{method.__qualname__}:outputs"
-        
+
         # Store input arguments
         self._redis.rpush(input_key, str(args))
-        
+
         # Execute method and store output
         output = method(self, *args, **kwargs)
         self._redis.rpush(output_key, output)
-        
+
         return output
     return wrapper
 
@@ -289,6 +302,7 @@ class Cache:
 ```
 
 **Example Test Case:**
+
 ```python
 cache = Cache()
 cache.store("first")
@@ -304,12 +318,14 @@ outputs = cache._redis.lrange("Cache.store:outputs", 0, -1)
 ### 4. Retrieving lists
 
 Implement a replay function to display the history of calls of a particular function:
+
 - Create `replay` function that takes a bound method as parameter
 - Uses keys generated from previous tasks to display call history
 - Shows total number of calls and each call with its input/output
 - Uses Redis LRANGE command and zip() to iterate over inputs and outputs
 
 **Key Features:**
+
 - **History Display**: Shows formatted call history with inputs and outputs
 - **Redis LRANGE**: Uses LRANGE command to retrieve list data
 - **Data Pairing**: Uses zip() function to pair inputs with outputs
@@ -317,16 +333,17 @@ Implement a replay function to display the history of calls of a particular func
 - **Formatted Output**: Displays calls in human-readable format
 
 **Implementation Details:**
+
 ```python
 def replay(method) -> None:
     redis_instance = method.__self__._redis
     method_name = method.__qualname__
-    
+
     # Get call count and history
     count = redis_instance.get(method_name)
     inputs = redis_instance.lrange(f"{method_name}:inputs", 0, -1)
     outputs = redis_instance.lrange(f"{method_name}:outputs", 0, -1)
-    
+
     # Display formatted history
     print(f"{method_name} was called {count} times:")
     for inp, out in zip(inputs, outputs):
@@ -334,6 +351,7 @@ def replay(method) -> None:
 ```
 
 **Example Output:**
+
 ```
 Cache.store was called 3 times:
 Cache.store(*('foo',)) -> 13bf32a9-a249-4664-95fc-b1062db2038f
@@ -341,11 +359,60 @@ Cache.store(*('bar',)) -> dcddd00c-4219-4dd7-8877-66afbe8e7df8
 Cache.store(*(42,)) -> 5e752f2b-ecd8-4925-a3ce-e2efdee08d20
 ```
 
+### 5. Implementing an expiring web cache and tracker
+
+Implement a web cache with expiration and request tracking using Redis:
+
+- Create `get_page` function that fetches HTML content from URLs
+- Track access count for each URL in key "count:{url}"
+- Cache results with 10 seconds expiration time
+- Use decorator pattern for clean implementation
+
+**Key Features:**
+
+- **URL Tracking**: Counts how many times each URL was accessed
+- **Expiring Cache**: Stores web content with automatic expiration
+- **Request Optimization**: Reduces network calls by caching responses
+- **Decorator Implementation**: Clean separation of caching logic
+- **Redis SETEX**: Uses SETEX command for cache with expiration
+
+**Implementation Details:**
+
+```python
+@cache_with_expiration(10)
+def get_page(url: str) -> str:
+    """Fetch HTML content with caching and tracking."""
+    response = requests.get(url)
+    return response.text
+
+def get_access_count(url: str) -> int:
+    """Get the number of times a URL was accessed."""
+    count = _redis.get(f"count:{url}")
+    return int(count.decode('utf-8')) if count is not None else 0
+```
+
+**Example Usage:**
+
+```python
+from web import get_page, get_access_count
+
+# First call - fetches from web (slower)
+content = get_page("http://example.com")
+print(f"Access count: {get_access_count('http://example.com')}")  # 1
+
+# Second call - uses cache (faster)
+content = get_page("http://example.com")
+print(f"Access count: {get_access_count('http://example.com')}")  # 2
+
+# After 10 seconds, cache expires and next call fetches from web again
+```
+
 ## Cache Class Methods
 
 ### Decorators
 
 - `call_history(method: Callable) -> Callable`
+
   - Decorator that stores the history of inputs and outputs for a function
   - Uses `method.__qualname__:inputs` and `method.__qualname__:outputs` as Redis keys
   - Uses Redis RPUSH command to append arguments and results to lists
@@ -397,12 +464,14 @@ python3 main.py                    # Test basic store functionality (Task 0)
 python3 main_task2.py              # Test count_calls decorator (Task 2)
 python3 main_task3.py              # Test call_history decorator (Task 3)
 python3 main_task4.py              # Test replay function (Task 4)
+python3 main_task5.py              # Test web caching functionality (Task 5)
 python3 test_task1.py              # Test get method with required test cases (Task 1)
 python3 test_get_methods.py        # Test get_str and get_int methods
 python3 test_count_calls.py        # Comprehensive decorator tests
 python3 test_call_history.py       # Comprehensive call_history tests
 python3 test_multiple_instances.py # Test decorator with multiple instances
 python3 test_replay.py             # Comprehensive replay function tests
+python3 test_web.py                # Simple tests for web caching functionality
 ```
 
 ### Expected Output Examples
@@ -424,11 +493,35 @@ b'3'
 ```
 
 **Task 3 (Call History):**
+
 ```bash
 $ python3 main_task3.py
 04f8dcaa-d354-4221-87f3-4923393a25ad
-a160a8a8-06dc-4934-8e95-df0cb839644b  
+a160a8a8-06dc-4934-8e95-df0cb839644b
 15a8fd87-1f55-4059-86aa-9d1a0d4f2aea
 inputs: [b"('first',)", b"('secont',)", b"('third',)"]
 outputs: [b'04f8dcaa-d354-4221-87f3-4923393a25ad', b'a160a8a8-06dc-4934-8e95-df0cb839644b', b'15a8fd87-1f55-4059-86aa-9d1a0d4f2aea']
+```
+
+**Task 5 (Web Caching):**
+
+```bash
+$ python3 test_web.py
+Testing URL: http://httpbin.org/get
+Initial access count: 0
+
+First call (fetch from web):
+Time taken: 0.513s
+Access count: 1
+Content preview: {
+  "args": {},
+  "headers": {
+    "Accept": "*/*",
+    "Accept-Encoding": "gzip, deflate",
+    "...
+
+Second call (from cache):
+Time taken: 0.000s
+Access count: 2
+Same content: True
 ```
