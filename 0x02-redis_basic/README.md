@@ -1,6 +1,6 @@
 # 0x02. Redis basic
 
-This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, and tracks method call counts using decorators.
+This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, tracks method call counts, and maintains call history using decorators.
 
 ## Learning Objectives
 
@@ -13,6 +13,8 @@ This project demonstrates basic Redis operations using Python. It includes imple
 - Learn to implement decorators with functools.wraps
 - Understand Redis INCR command for atomic incrementing
 - Practice method call tracking and monitoring
+- Learn Redis list commands (RPUSH, LPUSH, LRANGE)
+- Implement call history tracking with input/output storage
 
 ## Requirements
 
@@ -41,12 +43,14 @@ service redis-server start
 
 ## Files
 
-- `exercise.py`: Contains the Cache class implementation with store/get methods and count_calls decorator
+- `exercise.py`: Contains the Cache class implementation with store/get methods and decorators
 - `main.py`: Test file for the Cache class (Task 0)
 - `main_task2.py`: Test file for count_calls decorator (Task 2)
+- `main_task3.py`: Test file for call_history decorator (Task 3)
 - `test_task1.py`: Test file for get methods (Task 1)
 - `test_get_methods.py`: Additional tests for get_str and get_int methods
 - `test_count_calls.py`: Comprehensive tests for the count_calls decorator
+- `test_call_history.py`: Comprehensive tests for the call_history decorator
 - `test_multiple_instances.py`: Tests decorator behavior with multiple Cache instances
 - `comprehensive_test.py`: Complete test suite for all implemented features
 
@@ -110,6 +114,26 @@ print(cache.get(cache.store.__qualname__))  # Returns: b'3'
 
 # Check the method's qualified name used as key
 print(f"Counter key: {cache.store.__qualname__}")  # Returns: Cache.store
+```
+
+### Storing Call History (Task 3)
+```python
+#!/usr/bin/env python3
+Cache = __import__('exercise').Cache
+
+cache = Cache()
+
+# Store some data
+s1 = cache.store("first")
+s2 = cache.store("second")
+s3 = cache.store("third")
+
+# Retrieve input and output history
+inputs = cache._redis.lrange("{}:inputs".format(cache.store.__qualname__), 0, -1)
+outputs = cache._redis.lrange("{}:outputs".format(cache.store.__qualname__), 0, -1)
+
+print("inputs:", inputs)   # [b"('first',)", b"('second',)", b"('third',)"]
+print("outputs:", outputs) # [b'key1', b'key2', b'key3']
 ```
 
 ## Tasks
@@ -204,9 +228,69 @@ cache.store(b"third")   # Counter = 3
 count = cache.get(cache.store.__qualname__)  # Returns b'3'
 ```
 
+### 3. Storing lists
+
+Implement a decorator to store the history of inputs and outputs for a function:
+- Create `call_history` decorator above the Cache class
+- Decorator stores function inputs and outputs in separate Redis lists
+- Uses `method.__qualname__` with `:inputs` and `:outputs` suffixes as keys
+- Uses Redis RPUSH command to append to lists
+- Apply both `@call_history` and `@count_calls` decorators to store method
+
+**Key Features:**
+- **Input/Output Tracking**: Stores complete call history with arguments and results
+- **Redis Lists**: Uses RPUSH to maintain chronological order
+- **Qualified Name Keys**: Uses `Cache.store:inputs` and `Cache.store:outputs` as keys
+- **String Normalization**: Converts arguments to strings using `str(args)`
+- **Decorator Stacking**: Works together with `count_calls` decorator
+
+**Implementation Details:**
+```python
+def call_history(method: Callable) -> Callable:
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        input_key = f"{method.__qualname__}:inputs"
+        output_key = f"{method.__qualname__}:outputs"
+        
+        # Store input arguments
+        self._redis.rpush(input_key, str(args))
+        
+        # Execute method and store output
+        output = method(self, *args, **kwargs)
+        self._redis.rpush(output_key, output)
+        
+        return output
+    return wrapper
+
+class Cache:
+    @call_history
+    @count_calls
+    def store(self, data):
+        # Original store implementation
+```
+
+**Example Test Case:**
+```python
+cache = Cache()
+cache.store("first")
+cache.store("second")
+cache.store("third")
+
+inputs = cache._redis.lrange("Cache.store:inputs", 0, -1)
+outputs = cache._redis.lrange("Cache.store:outputs", 0, -1)
+# inputs: [b"('first',)", b"('second',)", b"('third',)"]
+# outputs: [b'key1', b'key2', b'key3']
+```
+
 ## Cache Class Methods
 
-### Decorator
+### Decorators
+
+- `call_history(method: Callable) -> Callable`
+  - Decorator that stores the history of inputs and outputs for a function
+  - Uses `method.__qualname__:inputs` and `method.__qualname__:outputs` as Redis keys
+  - Uses Redis RPUSH command to append arguments and results to lists
+  - Converts arguments to strings for Redis storage
 
 - `count_calls(method: Callable) -> Callable`
   - Decorator that counts how many times a method is called
@@ -216,10 +300,11 @@ count = cache.get(cache.store.__qualname__)  # Returns b'3'
 
 ### Storage Methods
 
-- `store(data: Union[str, bytes, int, float]) -> str` (decorated with @count_calls)
+- `store(data: Union[str, bytes, int, float]) -> str` (decorated with @call_history and @count_calls)
   - Stores data in Redis with a randomly generated UUID key
   - Returns the generated key as a string
   - Each call increments a counter stored in Redis
+  - Each call stores input arguments and output in separate Redis lists
 
 ### Retrieval Methods
 
@@ -251,9 +336,11 @@ Run individual tests:
 ```bash
 python3 main.py                    # Test basic store functionality (Task 0)
 python3 main_task2.py              # Test count_calls decorator (Task 2)
+python3 main_task3.py              # Test call_history decorator (Task 3)
 python3 test_task1.py              # Test get method with required test cases (Task 1)
 python3 test_get_methods.py        # Test get_str and get_int methods
 python3 test_count_calls.py        # Comprehensive decorator tests
+python3 test_call_history.py       # Comprehensive call_history tests
 python3 test_multiple_instances.py # Test decorator with multiple instances
 ```
 
@@ -273,4 +360,14 @@ b'hello'
 $ python3 main_task2.py
 b'1'
 b'3'
+```
+
+**Task 3 (Call History):**
+```bash
+$ python3 main_task3.py
+04f8dcaa-d354-4221-87f3-4923393a25ad
+a160a8a8-06dc-4934-8e95-df0cb839644b  
+15a8fd87-1f55-4059-86aa-9d1a0d4f2aea
+inputs: [b"('first',)", b"('secont',)", b"('third',)"]
+outputs: [b'04f8dcaa-d354-4221-87f3-4923393a25ad', b'a160a8a8-06dc-4934-8e95-df0cb839644b', b'15a8fd87-1f55-4059-86aa-9d1a0d4f2aea']
 ```
