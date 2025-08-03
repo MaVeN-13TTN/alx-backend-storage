@@ -1,6 +1,6 @@
 # 0x02. Redis basic
 
-This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys.
+This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys and retrieves it with optional type conversion.
 
 ## Learning Objectives
 
@@ -8,6 +8,8 @@ This project demonstrates basic Redis operations using Python. It includes imple
 - Learn how to use Redis as a simple cache
 - Understand Redis data types and storage mechanisms
 - Practice type annotations in Python
+- Learn how to handle data type conversion when retrieving from Redis
+- Understand Redis's byte string storage format
 
 ## Requirements
 
@@ -36,11 +38,15 @@ service redis-server start
 
 ## Files
 
-- `exercise.py`: Contains the Cache class implementation
-- `main.py`: Test file for the Cache class
+- `exercise.py`: Contains the Cache class implementation with store and get methods
+- `main.py`: Test file for the Cache class (Task 0)
+- `test_task1.py`: Test file for get methods (Task 1)
+- `test_get_methods.py`: Additional tests for get_str and get_int methods
+- `comprehensive_test.py`: Complete test suite for all implemented features
 
 ## Usage
 
+### Basic Usage (Task 0)
 ```python
 #!/usr/bin/env python3
 import redis
@@ -56,12 +62,102 @@ local_redis = redis.Redis()
 print(local_redis.get(key))
 ```
 
+### Using Get Methods (Task 1)
+```python
+#!/usr/bin/env python3
+Cache = __import__('exercise').Cache
+
+cache = Cache()
+
+# Store different data types
+str_key = cache.store("hello world")
+int_key = cache.store(42)
+bytes_key = cache.store(b"byte data")
+
+# Retrieve with type conversion
+print(cache.get_str(str_key))  # Returns: "hello world"
+print(cache.get_int(int_key))  # Returns: 42
+print(cache.get(bytes_key))    # Returns: b"byte data"
+
+# Custom conversion function
+result = cache.get(str_key, fn=lambda d: d.decode("utf-8").upper())
+print(result)  # Returns: "HELLO WORLD"
+```
+
 ## Tasks
 
 ### 0. Writing strings to Redis
 
 Create a Cache class with:
-
 - `__init__` method that stores a Redis client instance and flushes the database
 - `store` method that generates a random key, stores data, and returns the key
 - Proper type annotations for data types: str, bytes, int, float
+
+**Key Features:**
+- Uses UUID4 for random key generation
+- Supports multiple data types (str, bytes, int, float)
+- Flushes Redis database on initialization for clean state
+
+### 1. Reading from Redis and recovering original type
+
+Extend the Cache class with data retrieval methods:
+- `get` method that takes a key and optional conversion function
+- `get_str` method for automatic string conversion
+- `get_int` method for automatic integer conversion
+
+**Key Features:**
+- Redis stores all data as bytes, but methods can convert back to original types
+- `get(key, fn=None)` - retrieves data with optional conversion function
+- `get_str(key)` - automatically decodes bytes to UTF-8 string
+- `get_int(key)` - automatically converts bytes to integer
+- Returns `None` for non-existent keys (preserves Redis.get behavior)
+- Supports custom conversion functions via callable parameter
+
+**Example Test Case:**
+```python
+cache = Cache()
+TEST_CASES = {
+    b"foo": None,                           # bytes, no conversion
+    123: int,                              # int with int conversion
+    "bar": lambda d: d.decode("utf-8")     # string with decode
+}
+
+for value, fn in TEST_CASES.items():
+    key = cache.store(value)
+    assert cache.get(key, fn=fn) == value  # All assertions pass
+```
+
+## Cache Class Methods
+
+### Storage Methods
+- `store(data: Union[str, bytes, int, float]) -> str`
+  - Stores data in Redis with a randomly generated UUID key
+  - Returns the generated key as a string
+
+### Retrieval Methods
+- `get(key: str, fn: Optional[Callable] = None) -> Any`
+  - Retrieves data from Redis using the provided key
+  - Optionally applies conversion function `fn` to the retrieved bytes
+  - Returns `None` if key doesn't exist
+
+- `get_str(key: str) -> Optional[str]`
+  - Convenience method to retrieve and decode data as UTF-8 string
+  - Equivalent to `get(key, fn=lambda d: d.decode("utf-8"))`
+
+- `get_int(key: str) -> Optional[int]`
+  - Convenience method to retrieve and convert data to integer
+  - Equivalent to `get(key, fn=int)`
+
+## Testing
+
+Run the comprehensive test suite:
+```bash
+python3 comprehensive_test.py
+```
+
+Run individual tests:
+```bash
+python3 main.py              # Test basic store functionality
+python3 test_task1.py        # Test get method with required test cases
+python3 test_get_methods.py  # Test get_str and get_int methods
+```
