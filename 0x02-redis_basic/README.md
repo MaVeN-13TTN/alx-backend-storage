@@ -366,15 +366,17 @@ Implement a web cache with expiration and request tracking using Redis:
 - Create `get_page` function that fetches HTML content from URLs
 - Track access count for each URL in key "count:{url}"
 - Cache results with 10 seconds expiration time
+- Count also expires after 10 seconds (resets to 0)
 - Use decorator pattern for clean implementation
 
 **Key Features:**
 
 - **URL Tracking**: Counts how many times each URL was accessed
+- **Synchronized Expiration**: Both cache and count expire together after 10 seconds
 - **Expiring Cache**: Stores web content with automatic expiration
 - **Request Optimization**: Reduces network calls by caching responses
 - **Decorator Implementation**: Clean separation of caching logic
-- **Redis SETEX**: Uses SETEX command for cache with expiration
+- **Redis SETEX/EXPIRE**: Uses SETEX for cache and EXPIRE for count synchronization
 
 **Implementation Details:**
 

@@ -34,12 +34,12 @@ def cache_with_expiration(expiration: int = 10):
             cache_key = f"cache:{url}"
             count_key = f"count:{url}"
 
-            # Increment access counter
-            _redis.incr(count_key)
-
-            # Try to get from cache
+            # Try to get from cache first
             cached_result = _redis.get(cache_key)
             if cached_result is not None:
+                # Increment access counter and set expiration to match cache
+                _redis.incr(count_key)
+                _redis.expire(count_key, expiration)
                 # Type cast to bytes before decode since Redis returns bytes
                 return cast(bytes, cached_result).decode("utf-8")
 
@@ -48,6 +48,10 @@ def cache_with_expiration(expiration: int = 10):
 
             # Store in cache with expiration
             _redis.setex(cache_key, expiration, result)
+
+            # Increment access counter and set same expiration
+            _redis.incr(count_key)
+            _redis.expire(count_key, expiration)
 
             return result
 
@@ -104,12 +108,12 @@ def get_page_simple(url: str) -> str:
     cache_key = f"cache:{url}"
     count_key = f"count:{url}"
 
-    # Increment access counter
-    _redis.incr(count_key)
-
-    # Try to get from cache
+    # Try to get from cache first
     cached_result = _redis.get(cache_key)
     if cached_result is not None:
+        # Increment access counter and set expiration to match cache
+        _redis.incr(count_key)
+        _redis.expire(count_key, 10)
         return cast(bytes, cached_result).decode("utf-8")
 
     # If not in cache, fetch from URL
@@ -118,5 +122,9 @@ def get_page_simple(url: str) -> str:
 
     # Store in cache with 10 seconds expiration
     _redis.setex(cache_key, 10, result)
+
+    # Increment access counter and set same expiration
+    _redis.incr(count_key)
+    _redis.expire(count_key, 10)
 
     return result
