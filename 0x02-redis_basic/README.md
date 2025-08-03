@@ -1,6 +1,6 @@
 # 0x02. Redis basic
 
-This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys and retrieves it with optional type conversion.
+This project demonstrates basic Redis operations using Python. It includes implementing a Cache class that stores data in Redis with randomly generated keys, retrieves it with optional type conversion, and tracks method call counts using decorators.
 
 ## Learning Objectives
 
@@ -10,6 +10,9 @@ This project demonstrates basic Redis operations using Python. It includes imple
 - Practice type annotations in Python
 - Learn how to handle data type conversion when retrieving from Redis
 - Understand Redis's byte string storage format
+- Learn to implement decorators with functools.wraps
+- Understand Redis INCR command for atomic incrementing
+- Practice method call tracking and monitoring
 
 ## Requirements
 
@@ -38,15 +41,19 @@ service redis-server start
 
 ## Files
 
-- `exercise.py`: Contains the Cache class implementation with store and get methods
+- `exercise.py`: Contains the Cache class implementation with store/get methods and count_calls decorator
 - `main.py`: Test file for the Cache class (Task 0)
+- `main_task2.py`: Test file for count_calls decorator (Task 2)
 - `test_task1.py`: Test file for get methods (Task 1)
 - `test_get_methods.py`: Additional tests for get_str and get_int methods
+- `test_count_calls.py`: Comprehensive tests for the count_calls decorator
+- `test_multiple_instances.py`: Tests decorator behavior with multiple Cache instances
 - `comprehensive_test.py`: Complete test suite for all implemented features
 
 ## Usage
 
 ### Basic Usage (Task 0)
+
 ```python
 #!/usr/bin/env python3
 import redis
@@ -63,6 +70,7 @@ print(local_redis.get(key))
 ```
 
 ### Using Get Methods (Task 1)
+
 ```python
 #!/usr/bin/env python3
 Cache = __import__('exercise').Cache
@@ -84,16 +92,38 @@ result = cache.get(str_key, fn=lambda d: d.decode("utf-8").upper())
 print(result)  # Returns: "HELLO WORLD"
 ```
 
+### Counting Method Calls (Task 2)
+
+```python
+#!/usr/bin/env python3
+Cache = __import__('exercise').Cache
+
+cache = Cache()
+
+# Each store call increments the counter
+cache.store(b"first")
+print(cache.get(cache.store.__qualname__))  # Returns: b'1'
+
+cache.store(b"second")
+cache.store(b"third")
+print(cache.get(cache.store.__qualname__))  # Returns: b'3'
+
+# Check the method's qualified name used as key
+print(f"Counter key: {cache.store.__qualname__}")  # Returns: Cache.store
+```
+
 ## Tasks
 
 ### 0. Writing strings to Redis
 
 Create a Cache class with:
+
 - `__init__` method that stores a Redis client instance and flushes the database
 - `store` method that generates a random key, stores data, and returns the key
 - Proper type annotations for data types: str, bytes, int, float
 
 **Key Features:**
+
 - Uses UUID4 for random key generation
 - Supports multiple data types (str, bytes, int, float)
 - Flushes Redis database on initialization for clean state
@@ -101,11 +131,13 @@ Create a Cache class with:
 ### 1. Reading from Redis and recovering original type
 
 Extend the Cache class with data retrieval methods:
+
 - `get` method that takes a key and optional conversion function
 - `get_str` method for automatic string conversion
 - `get_int` method for automatic integer conversion
 
 **Key Features:**
+
 - Redis stores all data as bytes, but methods can convert back to original types
 - `get(key, fn=None)` - retrieves data with optional conversion function
 - `get_str(key)` - automatically decodes bytes to UTF-8 string
@@ -114,6 +146,7 @@ Extend the Cache class with data retrieval methods:
 - Supports custom conversion functions via callable parameter
 
 **Example Test Case:**
+
 ```python
 cache = Cache()
 TEST_CASES = {
@@ -127,20 +160,77 @@ for value, fn in TEST_CASES.items():
     assert cache.get(key, fn=fn) == value  # All assertions pass
 ```
 
+### 2. Incrementing values
+
+Implement a system to count how many times methods are called using a decorator:
+
+- Create `count_calls` decorator above the Cache class
+- Decorator uses method's `__qualname__` as Redis key
+- Uses Redis INCR command to atomically increment counter
+- Decorate the `store` method with `@count_calls`
+
+**Key Features:**
+
+- **Decorator Pattern**: Uses `functools.wraps` to preserve original method metadata
+- **Atomic Counting**: Uses Redis INCR for thread-safe incrementing
+- **Method Tracking**: Tracks calls specifically using method's qualified name
+- **Preserved Functionality**: Decorated method works exactly like the original
+- **Redis Integration**: Counter stored in same Redis instance as cache data
+
+**Implementation Details:**
+
+```python
+def count_calls(method: Callable) -> Callable:
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        key = method.__qualname__  # "Cache.store"
+        self._redis.incr(key)      # Increment counter
+        return method(self, *args, **kwargs)
+    return wrapper
+
+class Cache:
+    @count_calls
+    def store(self, data):
+        # Original store implementation
+```
+
+**Example Test Case:**
+
+```python
+cache = Cache()
+cache.store(b"first")   # Counter = 1
+cache.store(b"second")  # Counter = 2
+cache.store(b"third")   # Counter = 3
+count = cache.get(cache.store.__qualname__)  # Returns b'3'
+```
+
 ## Cache Class Methods
 
+### Decorator
+
+- `count_calls(method: Callable) -> Callable`
+  - Decorator that counts how many times a method is called
+  - Uses method's `__qualname__` as Redis key for counter
+  - Uses Redis INCR command for atomic incrementing
+  - Preserves original method metadata with `functools.wraps`
+
 ### Storage Methods
-- `store(data: Union[str, bytes, int, float]) -> str`
+
+- `store(data: Union[str, bytes, int, float]) -> str` (decorated with @count_calls)
   - Stores data in Redis with a randomly generated UUID key
   - Returns the generated key as a string
+  - Each call increments a counter stored in Redis
 
 ### Retrieval Methods
+
 - `get(key: str, fn: Optional[Callable] = None) -> Any`
+
   - Retrieves data from Redis using the provided key
   - Optionally applies conversion function `fn` to the retrieved bytes
   - Returns `None` if key doesn't exist
 
 - `get_str(key: str) -> Optional[str]`
+
   - Convenience method to retrieve and decode data as UTF-8 string
   - Equivalent to `get(key, fn=lambda d: d.decode("utf-8"))`
 
@@ -151,13 +241,36 @@ for value, fn in TEST_CASES.items():
 ## Testing
 
 Run the comprehensive test suite:
+
 ```bash
 python3 comprehensive_test.py
 ```
 
 Run individual tests:
+
 ```bash
-python3 main.py              # Test basic store functionality
-python3 test_task1.py        # Test get method with required test cases
-python3 test_get_methods.py  # Test get_str and get_int methods
+python3 main.py                    # Test basic store functionality (Task 0)
+python3 main_task2.py              # Test count_calls decorator (Task 2)
+python3 test_task1.py              # Test get method with required test cases (Task 1)
+python3 test_get_methods.py        # Test get_str and get_int methods
+python3 test_count_calls.py        # Comprehensive decorator tests
+python3 test_multiple_instances.py # Test decorator with multiple instances
+```
+
+### Expected Output Examples
+
+**Task 0 (Basic Storage):**
+
+```bash
+$ python3 main.py
+3a3e8231-b2f6-450d-8b0e-0f38f16e8ca2
+b'hello'
+```
+
+**Task 2 (Method Counting):**
+
+```bash
+$ python3 main_task2.py
+b'1'
+b'3'
 ```

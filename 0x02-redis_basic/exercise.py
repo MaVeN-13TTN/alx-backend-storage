@@ -8,7 +8,39 @@ for storing and retrieving data with random keys.
 
 import redis
 import uuid
+import functools
 from typing import Union, Callable, Optional, Any
+
+
+def count_calls(method: Callable) -> Callable:
+    """
+    Decorator that counts how many times a method is called.
+
+    Args:
+        method: The method to be decorated.
+
+    Returns:
+        Callable: The wrapped method that increments a counter in Redis.
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        """
+        Wrapper function that increments the method call count.
+
+        Args:
+            self: The instance of the Cache class.
+            *args: Positional arguments for the method.
+            **kwargs: Keyword arguments for the method.
+
+        Returns:
+            The return value of the original method.
+        """
+        key = method.__qualname__
+        self._redis.incr(key)
+        return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Cache:
@@ -29,6 +61,7 @@ class Cache:
         self._redis = redis.Redis()
         self._redis.flushdb()
 
+    @count_calls
     def store(self, data: Union[str, bytes, int, float]) -> str:
         """
         Store data in Redis with a random key.
